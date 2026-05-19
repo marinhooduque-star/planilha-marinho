@@ -655,8 +655,7 @@ function renderClientes(){
     return `<div class="client-card" style="cursor:pointer;display:flex;align-items:center;gap:1rem;flex-wrap:wrap" onclick="abrirFichaCliente('${c.id}')">
       <div class="avatar">${ini}</div>
       <div style="flex:1;min-width:120px">
-        <div style="font-weight:500;font-size:15px;color:var(--green);text-decoration:underline dotted">${c.nome}</div>
-        <div style="font-size:12px;color:var(--text2)">${c.tel||'Sem telefone'} ${c.end?'· '+c.end:''}</div>
+        <div style="font-weight:500;font-size:15px;color:var(--green)">${c.nome}</div>
       </div>
       <div class="client-stats">
         <div><div class="stat-label">Pedidos</div><strong>${cv.length}</strong></div>
