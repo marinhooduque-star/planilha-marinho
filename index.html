@@ -323,6 +323,9 @@ tr:hover td{background:var(--surface2)}
     <div class="form-group fmt"><label>Observações</label>
       <textarea id="c-obs" placeholder="Informações extras..."></textarea>
     </div>
+    <div class="form-group fmt"><label>📦 Código de rastreio (Correios)</label>
+      <input type="text" id="c-rastreio" placeholder="Ex: AA123456789BR" style="text-transform:uppercase;letter-spacing:.05em">
+    </div>
     <div class="btn-row">
       <button class="btn" onclick="fecharModal('modalCliente')">Cancelar</button>
       <button class="btn primary" id="btnSalvarCliente" onclick="salvarCliente()">
@@ -632,8 +635,26 @@ window.deletarVenda=async function(id){
 
 window.marcarEntregue=async function(id){
   if(!confirm('Confirmar entrega desta venda?'))return;
-  const dataHoje=hoje();
-  await upd('vendas',id,{entregue:true, dataEntrega:dataHoje});
+  await upd('vendas',id,{entregue:true, dataEntrega:hoje()});
+};
+
+window.desmarcarEntregue=async function(id){
+  if(!confirm('Desmarcar entrega desta venda?'))return;
+  await upd('vendas',id,{entregue:false, dataEntrega:''});
+};
+
+window.editarCliente=function(id){
+  const c=clientes.find(x=>x.id===id);
+  if(!c) return;
+  fecharModal('modalFicha');
+  document.getElementById('c-nome').value=c.nome||'';
+  document.getElementById('c-tel').value=c.tel||'';
+  document.getElementById('c-end').value=c.end||'';
+  document.getElementById('c-pedido').value=c.pedido||'';
+  document.getElementById('c-obs').value=c.obs||'';
+  document.getElementById('c-rastreio').value=c.rastreio||'';
+  window._editClienteId=id;
+  document.getElementById('modalCliente').classList.add('open');
 };
 
 // ── CLIENTES ──────────────────────────────────────────────────────────
@@ -697,6 +718,16 @@ window.abrirFichaCliente=function(id){
       <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;font-weight:500">💬 Observações</div>
       <div style="font-size:14px;color:var(--text2)">${c.obs}</div>
     </div>`:''}
+    ${c.rastreio?`<div style="margin-bottom:1rem">
+      <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px;font-weight:500">📬 Rastreio Correios</div>
+      <div style="background:#f0f4ff;border:1px solid #c7d7ff;border-radius:10px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+        <span style="font-family:monospace;font-size:15px;font-weight:600;color:#1a3a8f;letter-spacing:.08em">${c.rastreio}</span>
+        <a href="https://www.melhorenvio.com.br/rastreio/${c.rastreio}" target="_blank"
+          style="display:inline-flex;align-items:center;gap:6px;background:#FF6B00;color:#fff;text-decoration:none;padding:7px 14px;border-radius:8px;font-size:13px;font-weight:500">
+          <i class="ti ti-map-pin"></i> Rastrear
+        </a>
+      </div>
+    </div>`:''}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:1.5rem">
       <div style="background:var(--surface2);border-radius:10px;padding:12px;text-align:center">
         <div style="font-size:11px;color:var(--text2);margin-bottom:4px">PEDIDOS</div>
@@ -722,12 +753,16 @@ window.abrirFichaCliente=function(id){
           <div style="font-weight:500;margin-bottom:2px">${v.encomenda||'Venda'}</div>
           <div style="color:var(--text2)">${fmt(v.total)} · Pago: ${fmt(v.sinal)} · ${v.prazo||'—'}</div>
         </div>
-        ${v.entregue?`<span style="color:var(--green);font-weight:600;font-size:12px">✓ Entregue ${v.dataEntrega||''}</span>`
+        ${v.entregue?`<div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+            <span style="color:var(--green);font-weight:600;font-size:12px">✓ Entregue ${v.dataEntrega||''}</span>
+            <button class="btn" style="padding:3px 8px;font-size:11px" onclick="desmarcarEntregue('${v.id}')" title="Desmarcar entrega"><i class="ti ti-x"></i></button>
+          </div>`
           :`<button class="btn primary" style="padding:5px 12px;font-size:12px;gap:4px;flex-shrink:0" onclick="marcarEntregue('${v.id}');fecharModal('modalFicha')"><i class="ti ti-truck-delivery"></i> Marcar entregue</button>`}
       </div>`).join('')}
     </div>`:''}
-    <div style="margin-top:1rem">
-      <button class="btn danger" style="width:100%;justify-content:center" onclick="deletarCliente('${c.id}');fecharModal('modalFicha')"><i class="ti ti-trash"></i> Excluir cliente</button>
+    <div style="margin-top:1rem;display:flex;gap:8px">
+      <button class="btn" style="flex:1;justify-content:center" onclick="editarCliente('${c.id}')"><i class="ti ti-edit"></i> Editar cliente</button>
+      <button class="btn danger" style="flex:1;justify-content:center" onclick="deletarCliente('${c.id}');fecharModal('modalFicha')"><i class="ti ti-trash"></i> Excluir</button>
     </div>
   `;
   document.getElementById('modalFicha').classList.add('open');
@@ -735,7 +770,8 @@ window.abrirFichaCliente=function(id){
 
 
 window.abrirModalCliente=function(){
-  ['c-nome','c-tel','c-end','c-pedido','c-obs'].forEach(id=>document.getElementById(id).value='');
+  window._editClienteId=null;
+  ['c-nome','c-tel','c-end','c-pedido','c-obs','c-rastreio'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('modalCliente').classList.add('open');
 };
 
@@ -744,13 +780,17 @@ window.salvarCliente=async function(){
   if(!nome){alert('Informe o nome.');return;}
   const btn=document.getElementById('btnSalvarCliente');
   btn.innerHTML='<span class="loader"></span> Salvando...';btn.disabled=true;
-  await add('clientes',{
+  const data={
     nome,
     tel:document.getElementById('c-tel').value.trim(),
     end:document.getElementById('c-end').value.trim(),
     pedido:document.getElementById('c-pedido').value.trim(),
-    obs:document.getElementById('c-obs').value.trim()
-  });
+    obs:document.getElementById('c-obs').value.trim(),
+    rastreio:document.getElementById('c-rastreio').value.trim().toUpperCase()
+  };
+  if(window._editClienteId) await upd('clientes',window._editClienteId,data);
+  else await add('clientes',data);
+  window._editClienteId=null;
   btn.innerHTML='<i class="ti ti-device-floppy"></i> Salvar';btn.disabled=false;
   fecharModal('modalCliente');
 };
