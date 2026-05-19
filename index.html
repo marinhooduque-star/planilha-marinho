@@ -139,9 +139,26 @@ tr:hover td{background:var(--surface2)}
 <div class="wrap">
   <div class="header">
     <div class="logo">Planilha <span>Marinho</span></div>
-    <div class="conn-wrap">
-      <div class="dot" id="dot"></div>
-      <span id="conn-label">Aguardando login...</span>
+    <div style="display:flex;align-items:center;gap:1rem">
+      <!-- SINO DE NOTIFICAÇÕES -->
+      <div style="position:relative">
+        <button id="btnSino" onclick="toggleNotificacoes()" style="background:none;border:none;cursor:pointer;position:relative;padding:6px;border-radius:50%;transition:background .15s" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='none'">
+          <i class="ti ti-bell" style="font-size:22px;color:var(--text2)"></i>
+          <span id="badge-sino" style="display:none;position:absolute;top:2px;right:2px;background:#D85A30;color:#fff;font-size:10px;font-weight:700;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;line-height:1">0</span>
+        </button>
+        <!-- PAINEL DE NOTIFICAÇÕES -->
+        <div id="painel-notif" style="display:none;position:absolute;right:0;top:44px;width:320px;max-height:400px;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:var(--rl);box-shadow:0 8px 32px rgba(0,0,0,.15);z-index:300">
+          <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+            <span style="font-weight:600;font-size:14px">Notificações</span>
+            <button onclick="toggleNotificacoes()" style="background:none;border:none;cursor:pointer;color:var(--text2);font-size:18px">×</button>
+          </div>
+          <div id="lista-notif"><div class="empty" style="padding:1.5rem">Nenhuma notificação</div></div>
+        </div>
+      </div>
+      <div class="conn-wrap">
+        <div class="dot" id="dot"></div>
+        <span id="conn-label">Aguardando login...</span>
+      </div>
     </div>
   </div>
   <div class="nav">
@@ -466,7 +483,7 @@ window._iniciarFirebase = async function(){
     db = getFirestore(app);
     setConn(true,'Firebase conectado ☁️');
     ouvir('clientes', clientes, ()=>{ renderClientes(); renderDashboard(); });
-    ouvir('vendas',   vendas,   ()=>{ renderVendas();  renderDashboard(); });
+    ouvir('vendas',   vendas,   ()=>{ renderVendas();  renderDashboard(); calcularNotificacoes(); });
     ouvir('fluxo',    fluxo,    renderFluxo);
     ouvir('estoque',  estoque,  renderEstoque);
   } catch(e) {
@@ -608,21 +625,27 @@ window.salvarVenda=async function(){
     entrega:document.getElementById('v-entrega').value};
   const btn=document.getElementById('btnSalvarVenda');
   btn.innerHTML='<span class="loader"></span> Salvando...';btn.disabled=true;
-  if(editVendaId) {
-    await upd('vendas',editVendaId,data);
-  } else {
-    await add('vendas',data);
-    // Lança automaticamente no fluxo de caixa se tiver sinal/pagamento
-    if(data.sinal > 0) {
-      const nomeC = nomeCliente(data.clienteId) !== '—' ? nomeCliente(data.clienteId) : 'Cliente';
-      await add('fluxo', {
-        data: data.prazo || hoje(),
-        tipo: 'entrada',
-        valor: data.sinal,
-        cat: 'Venda',
-        desc: `Sinal - ${nomeC}${data.encomenda ? ' · '+data.encomenda.substring(0,30) : ''}`
-      });
+  try {
+    if(editVendaId) {
+      await upd('vendas',editVendaId,data);
+    } else {
+      await add('vendas',data);
+      // Lança automaticamente no fluxo de caixa se tiver sinal/pagamento
+      if(data.sinal > 0) {
+        const nomeCli = nomeC(data.clienteId)||'Cliente';
+        await addDoc(collection(db,'fluxo'), {
+          data: data.prazo || hoje(),
+          tipo: 'entrada',
+          valor: data.sinal,
+          cat: 'Venda',
+          desc: 'Sinal - ' + nomeCli + (data.encomenda ? ' · ' + data.encomenda.substring(0,30) : ''),
+          criadoEm: serverTimestamp()
+        });
+      }
     }
+  } catch(e) {
+    console.error('Erro ao salvar venda:', e);
+    alert('Erro ao salvar: ' + e.message);
   }
   btn.innerHTML='<i class="ti ti-device-floppy"></i> Salvar';btn.disabled=false;
   fecharModal('modalVenda');
@@ -641,6 +664,24 @@ window.marcarEntregue=async function(id){
 window.desmarcarEntregue=async function(id){
   if(!confirm('Desmarcar entrega desta venda?'))return;
   await upd('vendas',id,{entregue:false, dataEntrega:''});
+};
+
+window.salvarRastreio=async function(clienteId){
+  const input=document.getElementById('input-rastreio-'+clienteId);
+  const codigo=(input?.value||'').trim().toUpperCase();
+  if(!codigo){alert('Digite o código de rastreio.');return;}
+  await upd('clientes',clienteId,{rastreio:codigo});
+  fecharModal('modalFicha');
+  setTimeout(()=>abrirFichaCliente(clienteId),400);
+};
+
+window.editarRastreio=function(clienteId, codigoAtual){
+  const novo=prompt('Editar código de rastreio:', codigoAtual||'');
+  if(novo===null) return;
+  upd('clientes',clienteId,{rastreio:novo.trim().toUpperCase()}).then(()=>{
+    fecharModal('modalFicha');
+    setTimeout(()=>abrirFichaCliente(clienteId),400);
+  });
 };
 
 window.editarCliente=function(id){
@@ -722,12 +763,25 @@ window.abrirFichaCliente=function(id){
       <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px;font-weight:500">📬 Rastreio Correios</div>
       <div style="background:#f0f4ff;border:1px solid #c7d7ff;border-radius:10px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
         <span style="font-family:monospace;font-size:15px;font-weight:600;color:#1a3a8f;letter-spacing:.08em">${c.rastreio}</span>
-        <a href="https://www.melhorenvio.com.br/rastreio/${c.rastreio}" target="_blank"
-          style="display:inline-flex;align-items:center;gap:6px;background:#FF6B00;color:#fff;text-decoration:none;padding:7px 14px;border-radius:8px;font-size:13px;font-weight:500">
-          <i class="ti ti-map-pin"></i> Rastrear
-        </a>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <a href="https://www.melhorenvio.com.br/rastreio/${c.rastreio}" target="_blank"
+            style="display:inline-flex;align-items:center;gap:6px;background:#FF6B00;color:#fff;text-decoration:none;padding:7px 14px;border-radius:8px;font-size:13px;font-weight:500">
+            <i class="ti ti-map-pin"></i> Rastrear
+          </a>
+          <button class="btn" style="padding:6px 12px;font-size:12px" onclick="editarRastreio('${c.id}','${c.rastreio}')"><i class="ti ti-edit"></i></button>
+        </div>
       </div>
-    </div>`:''}
+    </div>`:`<div style="margin-bottom:1rem">
+      <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px;font-weight:500">📬 Código de Rastreio Correios</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="text" id="input-rastreio-${c.id}" placeholder="Ex: AA123456789BR"
+          style="text-transform:uppercase;letter-spacing:.05em;font-family:monospace;flex:1">
+        <button class="btn primary" style="padding:8px 14px;font-size:13px;white-space:nowrap" 
+          onclick="salvarRastreio('${c.id}')">
+          <i class="ti ti-device-floppy"></i> Salvar
+        </button>
+      </div>
+    </div>`}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:1.5rem">
       <div style="background:var(--surface2);border-radius:10px;padding:12px;text-align:center">
         <div style="font-size:11px;color:var(--text2);margin-bottom:4px">PEDIDOS</div>
@@ -929,6 +983,86 @@ window.deletarEstoque=async function(id){
 };
 
 // ── NAV / MODAIS ──────────────────────────────────────────────────────
+function calcularNotificacoes(){
+  const notifs=[];
+  const agora=new Date();
+  const hoje_str=hoje();
+
+  vendas.forEach(v=>{
+    if(v.entregue) return; // já entregue, ignora
+
+    const nome=nomeC(v.clienteId);
+    const encomenda=v.encomenda?v.encomenda.substring(0,30):'Venda';
+
+    // 1. Prazo próximo (até 3 dias)
+    if(v.entrega){
+      const prazo=new Date(v.entrega);
+      const diff=Math.floor((prazo-agora)/86400000);
+      if(diff>=0 && diff<=3){
+        notifs.push({tipo:'prazo', urgente:diff<=1,
+          msg:`⏰ <strong>${nome}</strong> — "${encomenda}" vence em ${diff===0?'hoje':diff+' dia(s)'}!`});
+      }
+      // 2. Prazo vencido
+      if(v.entrega < hoje_str){
+        const atraso=Math.floor((agora-prazo)/86400000);
+        notifs.push({tipo:'atraso', urgente:true,
+          msg:`🚨 <strong>${nome}</strong> — "${encomenda}" atrasado ${atraso} dia(s)!`});
+      }
+    }
+
+    // 3. Em andamento há mais de 30 dias sem entrega
+    const criadoEm=v.criadoEm?.seconds?new Date(v.criadoEm.seconds*1000):null;
+    if(criadoEm){
+      const diasEmAndamento=Math.floor((agora-criadoEm)/86400000);
+      if(diasEmAndamento>0 && diasEmAndamento%30===0){
+        notifs.push({tipo:'andamento', urgente:false,
+          msg:`📅 <strong>${nome}</strong> — "${encomenda}" está em andamento há ${diasEmAndamento} dias`});
+      } else if(diasEmAndamento>30 && !v.entrega){
+        const meses=Math.floor(diasEmAndamento/30);
+        notifs.push({tipo:'andamento', urgente:false,
+          msg:`📅 <strong>${nome}</strong> — "${encomenda}" em andamento há ${meses} mês(es) sem previsão`});
+      }
+    }
+  });
+
+  // Atualizar badge
+  const badge=document.getElementById('badge-sino');
+  if(notifs.length>0){
+    badge.style.display='flex';
+    badge.textContent=notifs.length>9?'9+':notifs.length;
+    badge.style.background=notifs.some(n=>n.urgente)?'#D85A30':'#BA7517';
+  } else {
+    badge.style.display='none';
+  }
+
+  // Renderizar lista
+  const lista=document.getElementById('lista-notif');
+  if(!notifs.length){
+    lista.innerHTML='<div class="empty" style="padding:1.5rem">✅ Tudo em dia!</div>';
+    return;
+  }
+  lista.innerHTML=notifs.map(n=>`
+    <div style="padding:12px 16px;border-bottom:1px solid var(--border);font-size:13px;line-height:1.5;background:${n.urgente?'#FFF5F5':'var(--surface)'}">
+      ${n.msg}
+    </div>`).join('');
+}
+
+window.toggleNotificacoes=function(){
+  const p=document.getElementById('painel-notif');
+  const aberto=p.style.display!=='none';
+  p.style.display=aberto?'none':'block';
+  if(!aberto) calcularNotificacoes();
+};
+
+// Fechar painel ao clicar fora
+document.addEventListener('click',function(e){
+  const painel=document.getElementById('painel-notif');
+  const btn=document.getElementById('btnSino');
+  if(painel && btn && !painel.contains(e.target) && !btn.contains(e.target)){
+    painel.style.display='none';
+  }
+});
+
 window.showPage=function(id,btn){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav button').forEach(b=>b.classList.remove('active'));
