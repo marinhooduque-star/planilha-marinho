@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -335,7 +336,7 @@ tr:hover td{background:var(--surface2)}
 function entrar() {
   var s = document.getElementById('login-senha').value;
   if (s === '1milhao') {
-    localStorage.setItem('pm_ok','1');
+    sessionStorage.setItem('pm_ok','1');
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('app').style.display = 'block';
     window._iniciarFirebase && window._iniciarFirebase();
@@ -349,7 +350,7 @@ function entrar() {
 }
 
 window.addEventListener('DOMContentLoaded', function(){
-  if (localStorage.getItem('pm_ok') === '1') {
+  if (sessionStorage.getItem('pm_ok') === '1') {
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('app').style.display = 'block';
   }
@@ -662,7 +663,7 @@ document.querySelectorAll('.modal-overlay').forEach(m=>
   m.addEventListener('click',e=>{if(e.target===m)m.classList.remove('open');}));
 
 // Se já autenticado quando o módulo carrega, inicia o Firebase direto
-if(localStorage.getItem('pm_ok')==='1'){
+if(sessionStorage.getItem('pm_ok')==='1'){
   window._iniciarFirebase();
 }
 </script>
