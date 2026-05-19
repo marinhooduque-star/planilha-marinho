@@ -148,6 +148,7 @@ tr:hover td{background:var(--surface2)}
     <button onclick="showPage('vendas',this)"><i class="ti ti-shopping-cart"></i> Vendas</button>
     <button onclick="showPage('clientes',this)"><i class="ti ti-users"></i> Clientes</button>
     <button onclick="showPage('fluxo',this)"><i class="ti ti-arrows-exchange"></i> Fluxo de Caixa</button>
+    <button onclick="showPage('estoque',this)"><i class="ti ti-barcode"></i> Estoque</button>
   </div>
 
   <!-- DASHBOARD -->
@@ -243,6 +244,31 @@ tr:hover td{background:var(--surface2)}
       </table>
     </div></div>
   </div>
+
+  <!-- ESTOQUE -->
+  <div class="page" id="page-estoque">
+    <div class="section-header">
+      <div class="section-title">Estoque / Cavacos</div>
+      <button class="btn primary" onclick="abrirModalEstoque()"><i class="ti ti-plus"></i> Novo item</button>
+    </div>
+    <div class="metrics" id="estoque-metrics"></div>
+    <div class="search-bar">
+      <input type="text" placeholder="Buscar por série ou descrição..." id="searchEstoque" oninput="renderEstoque()">
+      <select id="filtroEstoque" onchange="renderEstoque()" style="width:auto;min-width:160px">
+        <option value="">Todos os status</option>
+        <option value="disponivel">Disponível</option>
+        <option value="reservado">Reservado</option>
+        <option value="vendido">Vendido</option>
+      </select>
+    </div>
+    <div class="card-table"><div class="table-wrap">
+      <table>
+        <thead><tr><th>Nº Série</th><th>Descrição</th><th>Preço</th><th>Status</th><th>Cliente</th><th>Data</th><th></th></tr></thead>
+        <tbody id="tbody-estoque"><tr><td colspan="7"><div class="empty">—</div></td></tr></tbody>
+      </table>
+    </div></div>
+  </div>
+
 </div>
 </div>
 
@@ -368,6 +394,56 @@ window.addEventListener('DOMContentLoaded', function(){
 });
 </script>
 
+<!-- MODAL ESTOQUE -->
+<div class="modal-overlay" id="modalEstoque">
+  <div class="modal">
+    <h3 id="tituloModalEstoque">Novo item</h3>
+    <div class="form-grid">
+      <div class="form-group"><label>Número de série</label>
+        <input type="text" id="e-serie" placeholder="Ex: SN-001234">
+      </div>
+      <div class="form-group"><label>Preço (R$)</label>
+        <input type="number" id="e-preco" min="0" step="0.01" placeholder="0,00">
+      </div>
+    </div>
+    <div class="form-group fmt"><label>Descrição</label>
+      <textarea id="e-desc" placeholder="Descreva o produto/peça..."></textarea>
+    </div>
+    <div class="form-grid fmt">
+      <div class="form-group"><label>Status</label>
+        <select id="e-status">
+          <option value="disponivel">Disponível</option>
+          <option value="reservado">Reservado</option>
+          <option value="vendido">Vendido</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Vincular cliente</label>
+        <select id="e-cliente"><option value="">Nenhum</option></select>
+      </div>
+    </div>
+    <div class="form-group fmt"><label>Data</label>
+      <input type="date" id="e-data">
+    </div>
+    <div class="btn-row">
+      <button class="btn" onclick="fecharModal('modalEstoque')">Cancelar</button>
+      <button class="btn primary" id="btnSalvarEstoque" onclick="salvarEstoque()">
+        <i class="ti ti-device-floppy"></i> Salvar
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL FICHA CLIENTE -->
+<div class="modal-overlay" id="modalFicha">
+  <div class="modal" style="width:540px;max-height:85vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+      <h3 style="margin:0">Ficha do Cliente</h3>
+      <button class="btn" style="padding:4px 10px" onclick="fecharModal('modalFicha')"><i class="ti ti-x"></i></button>
+    </div>
+    <div id="fichaConteudo"></div>
+  </div>
+</div>
+
 <!-- ══ SCRIPT MÓDULO: Firebase + toda a lógica ══ -->
 <script type="module">
 import { initializeApp } from
@@ -389,8 +465,8 @@ const FB = {
 
 const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 let db;
-let vendas=[], clientes=[], fluxo=[];
-let editVendaId=null;
+let vendas=[], clientes=[], fluxo=[], estoque=[];
+let editVendaId=null, editEstoqueId=null;
 let cR, cS, cF; // charts
 
 // ── expõe para o script normal ────────────────────────────────────────
@@ -402,6 +478,7 @@ window._iniciarFirebase = async function(){
     ouvir('clientes', clientes, ()=>{ renderClientes(); renderDashboard(); });
     ouvir('vendas',   vendas,   ()=>{ renderVendas();  renderDashboard(); });
     ouvir('fluxo',    fluxo,    renderFluxo);
+    ouvir('estoque',  estoque,  renderEstoque);
   } catch(e) {
     setConn(false,'Erro ao conectar: '+e.message);
   }
@@ -563,6 +640,8 @@ window.deletarVenda=async function(id){
 };
 
 // ── CLIENTES ──────────────────────────────────────────────────────────
+const wasvg=`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 32 32" fill="#25D366"><path d="M16 0C7.163 0 0 7.163 0 16c0 2.824.738 5.476 2.031 7.775L0 32l8.469-2.016A15.93 15.93 0 0016 32c8.837 0 16-7.163 16-16S24.837 0 16 0zm0 29.333a13.27 13.27 0 01-6.771-1.854l-.486-.289-5.027 1.197 1.22-4.893-.317-.502A13.267 13.267 0 012.667 16C2.667 8.637 8.637 2.667 16 2.667S29.333 8.637 29.333 16 23.363 29.333 16 29.333zm7.27-9.862c-.398-.199-2.354-1.162-2.719-1.295-.365-.133-.631-.199-.897.199-.266.398-1.031 1.295-1.264 1.561-.233.266-.465.299-.863.1-.398-.199-1.681-.619-3.202-1.977-1.183-1.056-1.982-2.361-2.215-2.759-.233-.398-.025-.613.175-.811.18-.178.398-.465.598-.698.199-.233.266-.398.398-.664.133-.266.066-.498-.033-.697-.1-.199-.897-2.162-1.229-2.959-.324-.776-.654-.671-.897-.683l-.764-.013c-.266 0-.697.1-1.063.498-.365.398-1.395 1.362-1.395 3.322s1.428 3.854 1.627 4.12c.199.266 2.809 4.289 6.808 6.016.952.411 1.694.656 2.273.84.954.303 1.823.26 2.51.158.765-.114 2.354-.962 2.686-1.891.332-.929.332-1.726.232-1.891-.099-.166-.365-.266-.763-.465z"/></svg>`;
+
 function renderClientes(){
   const q=(document.getElementById('searchCliente').value||'').toLowerCase();
   const list=clientes.filter(c=>c.nome.toLowerCase().includes(q));
@@ -573,19 +652,11 @@ function renderClientes(){
     const total=cv.reduce((a,v)=>a+Number(v.total||0),0);
     const pago=cv.reduce((a,v)=>a+Number(v.sinal||0),0);
     const ini=c.nome.split(' ').map(x=>x[0]).join('').slice(0,2).toUpperCase();
-    const telLimpo=(c.tel||'').replace(/\D/g,'');
-    const waLink=telLimpo?`https://wa.me/55${telLimpo}`:'';
-    return `<div class="client-card">
+    return `<div class="client-card" style="cursor:pointer;display:flex;align-items:center;gap:1rem;flex-wrap:wrap" onclick="abrirFichaCliente('${c.id}')">
       <div class="avatar">${ini}</div>
-      <div style="flex:1;min-width:160px">
-        <div style="font-weight:500;font-size:15px;margin-bottom:4px">${c.nome}</div>
-        ${c.tel?`<div style="font-size:13px;margin-bottom:2px;display:flex;align-items:center;gap:5px">
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 32 32" fill="#25D366"><path d="M16 0C7.163 0 0 7.163 0 16c0 2.824.738 5.476 2.031 7.775L0 32l8.469-2.016A15.93 15.93 0 0016 32c8.837 0 16-7.163 16-16S24.837 0 16 0zm0 29.333a13.27 13.27 0 01-6.771-1.854l-.486-.289-5.027 1.197 1.22-4.893-.317-.502A13.267 13.267 0 012.667 16C2.667 8.637 8.637 2.667 16 2.667S29.333 8.637 29.333 16 23.363 29.333 16 29.333zm7.27-9.862c-.398-.199-2.354-1.162-2.719-1.295-.365-.133-.631-.199-.897.199-.266.398-1.031 1.295-1.264 1.561-.233.266-.465.299-.863.1-.398-.199-1.681-.619-3.202-1.977-1.183-1.056-1.982-2.361-2.215-2.759-.233-.398-.025-.613.175-.811.18-.178.398-.465.598-.698.199-.233.266-.398.398-.664.133-.266.066-.498-.033-.697-.1-.199-.897-2.162-1.229-2.959-.324-.776-.654-.671-.897-.683l-.764-.013c-.266 0-.697.1-1.063.498-.365.398-1.395 1.362-1.395 3.322s1.428 3.854 1.627 4.12c.199.266 2.809 4.289 6.808 6.016.952.411 1.694.656 2.273.84.954.303 1.823.26 2.51.158.765-.114 2.354-.962 2.686-1.891.332-.929.332-1.726.232-1.891-.099-.166-.365-.266-.763-.465z"/></svg>
-          ${waLink?`<a href="${waLink}" target="_blank" style="color:#25D366;text-decoration:none;font-weight:500">${c.tel}</a>`:c.tel}
-        </div>`:''}
-        ${c.end?`<div style="font-size:12px;color:var(--text2);margin-bottom:2px"><i class="ti ti-map-pin" style="color:var(--text3)"></i> ${c.end}</div>`:''}
-        ${c.pedido?`<div style="font-size:12px;background:var(--green-l);color:var(--green-d);padding:6px 10px;border-radius:8px;margin-top:6px"><strong>📦 Pedido:</strong> ${c.pedido}</div>`:''}
-        ${c.obs?`<div style="font-size:12px;color:var(--text2);margin-top:4px">💬 ${c.obs}</div>`:''}
+      <div style="flex:1;min-width:120px">
+        <div style="font-weight:500;font-size:15px;color:var(--green);text-decoration:underline dotted">${c.nome}</div>
+        <div style="font-size:12px;color:var(--text2)">${c.tel||'Sem telefone'} ${c.end?'· '+c.end:''}</div>
       </div>
       <div class="client-stats">
         <div><div class="stat-label">Pedidos</div><strong>${cv.length}</strong></div>
@@ -593,12 +664,75 @@ function renderClientes(){
         <div><div class="stat-label">Pago</div><strong style="color:var(--green)">${fmt(pago)}</strong></div>
         <div><div class="stat-label">Saldo</div><strong style="color:${total-pago>0?'var(--amber)':'var(--green)'}">${fmt(total-pago)}</strong></div>
       </div>
-      <div class="actions">
-        <button class="btn danger" style="padding:4px 10px;font-size:12px" onclick="deletarCliente('${c.id}')"><i class="ti ti-trash"></i></button>
-      </div>
+      <i class="ti ti-chevron-right" style="color:var(--text3)"></i>
     </div>`;
   }).join('');
 }
+
+window.abrirFichaCliente=function(id){
+  const c=clientes.find(x=>x.id===id);
+  if(!c) return;
+  const cv=vendas.filter(v=>v.clienteId===id);
+  const total=cv.reduce((a,v)=>a+Number(v.total||0),0);
+  const pago=cv.reduce((a,v)=>a+Number(v.sinal||0),0);
+  const ini=c.nome.split(' ').map(x=>x[0]).join('').slice(0,2).toUpperCase();
+  const telLimpo=(c.tel||'').replace(/\D/g,'');
+  const waLink=telLimpo?`https://wa.me/55${telLimpo}`:'';
+  document.getElementById('fichaConteudo').innerHTML=`
+    <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.5rem">
+      <div style="width:60px;height:60px;border-radius:50%;background:var(--green-l);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:22px;color:var(--green-d);flex-shrink:0">${ini}</div>
+      <div><div style="font-size:20px;font-weight:600">${c.nome}</div></div>
+    </div>
+    ${c.tel?`<div style="margin-bottom:1rem">
+      <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px;font-weight:500">WhatsApp</div>
+      <a href="${waLink}" target="_blank" style="display:inline-flex;align-items:center;gap:8px;color:#25D366;text-decoration:none;font-weight:500;font-size:15px;background:#f0fdf7;padding:10px 14px;border-radius:10px;border:1px solid #c3f0db">
+        ${wasvg} ${c.tel}
+      </a>
+    </div>`:''}
+    ${c.end?`<div style="margin-bottom:1rem">
+      <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;font-weight:500">📍 Endereço</div>
+      <div style="font-size:14px">${c.end}</div>
+    </div>`:''}
+    ${c.pedido?`<div style="margin-bottom:1rem">
+      <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px;font-weight:500">📦 Pedido</div>
+      <div style="background:var(--green-l);color:var(--green-d);padding:12px;border-radius:10px;font-size:14px;font-weight:500">${c.pedido}</div>
+    </div>`:''}
+    ${c.obs?`<div style="margin-bottom:1rem">
+      <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;font-weight:500">💬 Observações</div>
+      <div style="font-size:14px;color:var(--text2)">${c.obs}</div>
+    </div>`:''}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:1.5rem">
+      <div style="background:var(--surface2);border-radius:10px;padding:12px;text-align:center">
+        <div style="font-size:11px;color:var(--text2);margin-bottom:4px">PEDIDOS</div>
+        <div style="font-size:22px;font-weight:600">${cv.length}</div>
+      </div>
+      <div style="background:var(--surface2);border-radius:10px;padding:12px;text-align:center">
+        <div style="font-size:11px;color:var(--text2);margin-bottom:4px">TOTAL GASTO</div>
+        <div style="font-size:18px;font-weight:600">${fmt(total)}</div>
+      </div>
+      <div style="background:var(--green-l);border-radius:10px;padding:12px;text-align:center">
+        <div style="font-size:11px;color:var(--green-d);margin-bottom:4px">PAGO</div>
+        <div style="font-size:18px;font-weight:600;color:var(--green-d)">${fmt(pago)}</div>
+      </div>
+      <div style="background:${total-pago>0?'var(--amber-l)':'var(--green-l)'};border-radius:10px;padding:12px;text-align:center">
+        <div style="font-size:11px;color:${total-pago>0?'var(--amber)':'var(--green-d)'};margin-bottom:4px">SALDO</div>
+        <div style="font-size:18px;font-weight:600;color:${total-pago>0?'var(--amber)':'var(--green-d)'}">${fmt(total-pago)}</div>
+      </div>
+    </div>
+    ${cv.length?`<div>
+      <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px;font-weight:500">🛒 Histórico de Vendas</div>
+      ${cv.map(v=>`<div style="background:var(--surface2);border-radius:8px;padding:10px 12px;margin-bottom:6px;font-size:13px">
+        <div style="font-weight:500;margin-bottom:2px">${v.encomenda||'Venda'}</div>
+        <div style="color:var(--text2)">${fmt(v.total)} · Pago: ${fmt(v.sinal)} · ${v.prazo||'—'}</div>
+      </div>`).join('')}
+    </div>`:''}
+    <div style="margin-top:1rem">
+      <button class="btn danger" style="width:100%;justify-content:center" onclick="deletarCliente('${c.id}');fecharModal('modalFicha')"><i class="ti ti-trash"></i> Excluir cliente</button>
+    </div>
+  `;
+  document.getElementById('modalFicha').classList.add('open');
+};
+
 
 window.abrirModalCliente=function(){
   ['c-nome','c-tel','c-end','c-pedido','c-obs'].forEach(id=>document.getElementById(id).value='');
@@ -686,6 +820,86 @@ window.deletarFluxo=async function(id){
   await del('fluxo',id);
 };
 
+// ── ESTOQUE ───────────────────────────────────────────────────────────
+function renderEstoque(){
+  const q=(document.getElementById('searchEstoque')?.value||'').toLowerCase();
+  const fs=document.getElementById('filtroEstoque')?.value||'';
+  const list=estoque.filter(e=>{
+    const match=(!q||(e.serie||'').toLowerCase().includes(q)||(e.desc||'').toLowerCase().includes(q));
+    return match&&(!fs||e.status===fs);
+  });
+  const disp=estoque.filter(e=>e.status==='disponivel').length;
+  const vend=estoque.filter(e=>e.status==='vendido').length;
+  const reserv=estoque.filter(e=>e.status==='reservado').length;
+  const vlrTotal=estoque.reduce((a,e)=>a+Number(e.preco||0),0);
+  document.getElementById('estoque-metrics').innerHTML=`
+    <div class="metric"><div class="metric-label">Total itens</div><div class="metric-value">${estoque.length}</div></div>
+    <div class="metric"><div class="metric-label">Disponíveis</div><div class="metric-value green">${disp}</div></div>
+    <div class="metric"><div class="metric-label">Reservados</div><div class="metric-value amber">${reserv}</div></div>
+    <div class="metric"><div class="metric-label">Vendidos</div><div class="metric-value">${vend}</div></div>
+    <div class="metric"><div class="metric-label">Valor total</div><div class="metric-value">${fmt(vlrTotal)}</div></div>`;
+  const badgeE=s=>{const m={disponivel:'Disponível',reservado:'Reservado',vendido:'Vendido'};const cl={disponivel:'quitado',reservado:'parcial',vendido:'entregue'};return `<span class="badge ${cl[s]||'pendente'}">${m[s]||s}</span>`;};
+  const tb=document.getElementById('tbody-estoque');
+  if(!list.length){tb.innerHTML=`<tr><td colspan="7"><div class="empty">Nenhum item encontrado.</div></td></tr>`;return;}
+  tb.innerHTML=list.map(e=>`<tr>
+    <td><strong style="font-family:monospace">${e.serie||'—'}</strong></td>
+    <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.desc||'—'}</td>
+    <td>${fmt(e.preco)}</td>
+    <td>${badgeE(e.status)}</td>
+    <td>${e.clienteId?nomeC(e.clienteId):'—'}</td>
+    <td>${e.data||'—'}</td>
+    <td><div class="actions">
+      <button class="btn" style="padding:4px 10px;font-size:12px" onclick="abrirModalEstoque('${e.id}')"><i class="ti ti-edit"></i></button>
+      <button class="btn danger" style="padding:4px 10px;font-size:12px" onclick="deletarEstoque('${e.id}')"><i class="ti ti-trash"></i></button>
+    </div></td>
+  </tr>`).join('');
+}
+
+window.abrirModalEstoque=function(id){
+  editEstoqueId=id||null;
+  document.getElementById('tituloModalEstoque').textContent=id?'Editar item':'Novo item';
+  const sel=document.getElementById('e-cliente');
+  sel.innerHTML='<option value="">Nenhum</option>'+clientes.map(c=>`<option value="${c.id}">${c.nome}</option>`).join('');
+  if(id){
+    const e=estoque.find(x=>x.id===id);
+    if(e){
+      document.getElementById('e-serie').value=e.serie||'';
+      document.getElementById('e-preco').value=e.preco||'';
+      document.getElementById('e-desc').value=e.desc||'';
+      document.getElementById('e-status').value=e.status||'disponivel';
+      document.getElementById('e-cliente').value=e.clienteId||'';
+      document.getElementById('e-data').value=e.data||'';
+    }
+  } else {
+    ['e-serie','e-preco','e-desc'].forEach(i=>document.getElementById(i).value='');
+    document.getElementById('e-status').value='disponivel';
+    document.getElementById('e-cliente').value='';
+    document.getElementById('e-data').value=hoje();
+  }
+  document.getElementById('modalEstoque').classList.add('open');
+};
+
+window.salvarEstoque=async function(){
+  const serie=document.getElementById('e-serie').value.trim();
+  if(!serie){alert('Informe o número de série.');return;}
+  const data={serie,desc:document.getElementById('e-desc').value.trim(),
+    preco:parseFloat(document.getElementById('e-preco').value)||0,
+    status:document.getElementById('e-status').value,
+    clienteId:document.getElementById('e-cliente').value,
+    data:document.getElementById('e-data').value};
+  const btn=document.getElementById('btnSalvarEstoque');
+  btn.innerHTML='<span class="loader"></span> Salvando...';btn.disabled=true;
+  if(editEstoqueId) await upd('estoque',editEstoqueId,data);
+  else await add('estoque',data);
+  btn.innerHTML='<i class="ti ti-device-floppy"></i> Salvar';btn.disabled=false;
+  fecharModal('modalEstoque');
+};
+
+window.deletarEstoque=async function(id){
+  if(!confirm('Excluir este item?'))return;
+  await del('estoque',id);
+};
+
 // ── NAV / MODAIS ──────────────────────────────────────────────────────
 window.showPage=function(id,btn){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
@@ -696,6 +910,7 @@ window.showPage=function(id,btn){
   else if(id==='vendas')renderVendas();
   else if(id==='clientes')renderClientes();
   else if(id==='fluxo')renderFluxo();
+  else if(id==='estoque')renderEstoque();
 };
 window.fecharModal=function(id){document.getElementById(id).classList.remove('open');};
 document.querySelectorAll('.modal-overlay').forEach(m=>
